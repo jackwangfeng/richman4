@@ -124,17 +124,31 @@ export class BoardRenderer {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Owner border highlight
-      if (prop.ownerIndex >= 0) {
+      // Owner border highlight and ownership indicator
+      if (prop.ownerIndex >= 0 && state.players[prop.ownerIndex]) {
+        const ownerColor = state.players[prop.ownerIndex].color;
         ctx.beginPath();
         ctx.moveTo(poly[0].x, poly[0].y);
         for (let j = 1; j < poly.length; j++) {
           ctx.lineTo(poly[j].x, poly[j].y);
         }
         ctx.closePath();
-        ctx.strokeStyle = state.players[prop.ownerIndex].color;
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = ownerColor;
+        ctx.lineWidth = 4;
         ctx.stroke();
+
+        // Draw ownership flag in corner when no buildings yet
+        if (prop.buildings === 0) {
+          const flagX = poly[0].x;
+          const flagY = poly[0].y;
+          ctx.beginPath();
+          ctx.arc(flagX, flagY, 6, 0, Math.PI * 2);
+          ctx.fillStyle = ownerColor;
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
       }
 
       // Tile label
@@ -171,32 +185,67 @@ export class BoardRenderer {
 
       if (tile.type !== TileType.PROPERTY || prop.ownerIndex === -1 || prop.buildings <= 0) continue;
 
+      // Calculate tile center and size
+      const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length;
+      const cy = poly.reduce((s, p) => s + p.y, 0) / poly.length;
+
+      // Compute bounding box for size reference
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of poly) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const tileW = maxX - minX;
+      const tileH = maxY - minY;
+      const imgSize = Math.min(tileW, tileH) * 0.7;
+
       const buildingImg = this.buildingImages.get(prop.buildings);
       if (buildingImg && buildingImg.complete && buildingImg.naturalWidth > 0) {
-        // Compute bounding box of the tile polygon
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of poly) {
-          if (p.x < minX) minX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y > maxY) maxY = p.y;
-        }
-        ctx.drawImage(buildingImg, minX, minY, maxX - minX, maxY - minY);
+        // Draw building image centered on tile
+        ctx.drawImage(
+          buildingImg,
+          cx - imgSize / 2,
+          cy - imgSize / 2,
+          imgSize,
+          imgSize
+        );
       } else {
-        // Fallback to text if images not loaded
-        const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length;
-        const cy = poly.reduce((s, p) => s + p.y, 0) / poly.length;
-        const dx = poly[1].x - poly[0].x;
-        const dy = poly[1].y - poly[0].y;
-        const tileW = Math.sqrt(dx * dx + dy * dy);
-        const fontSize = Math.max(7, Math.min(12, tileW * 0.3));
-        const infoSize = Math.max(6, fontSize * 0.7);
-        ctx.font = `${infoSize}px "Microsoft YaHei", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#c62828';
-        const bldg = prop.buildings === 5 ? 'H' : `${prop.buildings}`;
-        ctx.fillText(bldg, cx, cy + fontSize * 0.45);
+        // Fallback to colored house icons if images not loaded
+        const houseSize = Math.max(6, imgSize * 0.25);
+        const houseCount = prop.buildings === 5 ? 1 : prop.buildings;
+        const isHotel = prop.buildings === 5;
+
+        ctx.fillStyle = isHotel ? '#c62828' : '#2e7d32';
+
+        if (isHotel) {
+          // Draw hotel as a larger rectangle
+          ctx.fillRect(cx - houseSize, cy - houseSize * 0.6, houseSize * 2, houseSize * 1.2);
+          ctx.fillStyle = '#fff';
+          ctx.font = `bold ${houseSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('H', cx, cy);
+        } else {
+          // Draw small house icons
+          const spacing = houseSize * 1.2;
+          const startX = cx - ((houseCount - 1) * spacing) / 2;
+          for (let h = 0; h < houseCount; h++) {
+            const hx = startX + h * spacing;
+            // Draw simple house shape
+            ctx.beginPath();
+            ctx.moveTo(hx, cy - houseSize * 0.5); // roof top
+            ctx.lineTo(hx + houseSize * 0.5, cy); // roof right
+            ctx.lineTo(hx + houseSize * 0.4, cy); // wall right top
+            ctx.lineTo(hx + houseSize * 0.4, cy + houseSize * 0.4); // wall right bottom
+            ctx.lineTo(hx - houseSize * 0.4, cy + houseSize * 0.4); // wall left bottom
+            ctx.lineTo(hx - houseSize * 0.4, cy); // wall left top
+            ctx.lineTo(hx - houseSize * 0.5, cy); // roof left
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
       }
     }
   }
