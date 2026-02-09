@@ -1,5 +1,14 @@
 import { Board } from '../core/Board';
 import { GameState, Vec2, Vec3 } from '../types';
+import { TOTAL_TILES, TILES_PER_SIDE } from '../constants';
+
+// Direction enum for walking animation
+enum WalkDirection {
+  RIGHT = 0,  // Bottom edge: tiles 0-7
+  UP = 1,     // Right edge: tiles 8-15
+  LEFT = 2,   // Top edge: tiles 16-23
+  DOWN = 3,   // Left edge: tiles 24-31
+}
 
 interface TokenAnim {
   playerIndex: number;
@@ -7,6 +16,7 @@ interface TokenAnim {
   toPos: number;
   startTime: number;
   duration: number;
+  direction: WalkDirection;
 }
 
 const TOKEN_SIZE = 72;
@@ -17,6 +27,7 @@ export class TokenRenderer {
   private activeAnims: TokenAnim[] = [];
   private displayPositions: Map<number, number> = new Map();
   private movingPlayers: Set<number> = new Set();
+  private playerDirections: Map<number, WalkDirection> = new Map();
   private getImage: (characterId: string) => HTMLImageElement | undefined;
   private getWalkFrame: (characterId: string, frameIndex: number) => HTMLImageElement | undefined;
 
@@ -30,15 +41,30 @@ export class TokenRenderer {
     this.getWalkFrame = getWalkFrame;
   }
 
+  // Determine walking direction based on tile position
+  private getDirectionForTile(tileIndex: number): WalkDirection {
+    const side = Math.floor(tileIndex / TILES_PER_SIDE);
+    switch (side) {
+      case 0: return WalkDirection.RIGHT;  // Bottom: 0-7
+      case 1: return WalkDirection.UP;     // Right: 8-15
+      case 2: return WalkDirection.LEFT;   // Top: 16-23
+      case 3: return WalkDirection.DOWN;   // Left: 24-31
+      default: return WalkDirection.RIGHT;
+    }
+  }
+
   // Called by engine event: start a step animation for one tile
   animateStep(playerIndex: number, fromPos: number, toPos: number) {
     this.movingPlayers.add(playerIndex);
+    const direction = this.getDirectionForTile(toPos);
+    this.playerDirections.set(playerIndex, direction);
     this.activeAnims.push({
       playerIndex,
       fromPos,
       toPos,
       startTime: performance.now(),
       duration: 180,
+      direction,
     });
   }
 
@@ -77,8 +103,9 @@ export class TokenRenderer {
         };
         const pos2D = this.board.project(pos3D);
         const isMoving = this.movingPlayers.has(pIdx);
+        const direction = this.playerDirections.get(pIdx) ?? WalkDirection.RIGHT;
 
-        this.drawToken(ctx, pos2D, player.color, player.name[0], player.characterId, isMoving, now);
+        this.drawToken(ctx, pos2D, player.color, player.name[0], player.characterId, isMoving, now, direction);
       });
     }
   }
@@ -124,7 +151,7 @@ export class TokenRenderer {
     };
   }
 
-  private drawToken(ctx: CanvasRenderingContext2D, pos: Vec2, color: string, initial: string, characterId: string, isMoving: boolean, now: number) {
+  private drawToken(ctx: CanvasRenderingContext2D, pos: Vec2, color: string, initial: string, characterId: string, isMoving: boolean, now: number, direction: WalkDirection) {
     const size = TOKEN_SIZE;
 
     let img: HTMLImageElement | undefined;
@@ -136,6 +163,10 @@ export class TokenRenderer {
       img = this.getImage(characterId);
     }
 
+    // Determine if we need to flip the image based on direction
+    // Original sprites face right, so flip for left-facing directions
+    const shouldFlip = direction === WalkDirection.LEFT || direction === WalkDirection.DOWN;
+
     if (img && img.complete && img.naturalWidth > 0) {
       ctx.beginPath();
       ctx.ellipse(pos.x, pos.y + size * 0.38, size * 0.3, size * 0.12, 0, 0, Math.PI * 2);
@@ -145,7 +176,15 @@ export class TokenRenderer {
       ctx.save();
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, pos.x - size / 2, pos.y - size * 0.7, size, size);
+
+      if (shouldFlip) {
+        // Flip horizontally
+        ctx.translate(pos.x, pos.y - size * 0.7);
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, -size / 2, 0, size, size);
+      } else {
+        ctx.drawImage(img, pos.x - size / 2, pos.y - size * 0.7, size, size);
+      }
       ctx.restore();
 
       const tagY = pos.y + size * 0.32;
