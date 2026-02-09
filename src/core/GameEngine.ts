@@ -371,11 +371,11 @@ export class GameEngine {
     // Loop to allow multiple upgrades
     while (prop.buildings < 5 && player.money >= tile.buildCost) {
       if (player.isHuman && !player.autoPlay) {
-        const buildingName = prop.buildings === 4 ? '酒店' : `第${prop.buildings + 1}栋房屋`;
+        const buildingName = prop.buildings === 4 ? '酒店' : `${prop.buildings + 1}级`;
         this.state.phase = GamePhase.PLAYER_DECISION;
         this.state.decisionOptions = [
-          { label: `建造${buildingName} ($${tile.buildCost})`, action: 'build' },
-          { label: '不建造', action: 'pass' },
+          { label: `升级到${buildingName} ($${tile.buildCost})`, action: 'build' },
+          { label: '不升级', action: 'pass' },
         ];
         this.emit('phaseChange', GamePhase.PLAYER_DECISION);
         const action = await this.waitForAction();
@@ -400,6 +400,7 @@ export class GameEngine {
     const tile = TILE_DEFS[tileIndex];
     player.money -= tile.price;
     this.state.properties[tileIndex].ownerIndex = player.index;
+    this.state.properties[tileIndex].buildings = 1; // Start with level 1 building
     this.addMessage(`${player.name} 购买了 ${tile.name} ($${tile.price})`, player.color);
     this.emit('propertyBought', { playerIndex: player.index, tileIndex });
   }
@@ -409,8 +410,8 @@ export class GameEngine {
     const prop = this.state.properties[tileIndex];
     player.money -= tile.buildCost;
     prop.buildings++;
-    const label = prop.buildings === 5 ? '酒店' : `${prop.buildings}栋房屋`;
-    this.addMessage(`${player.name} 在 ${tile.name} 建造了${label} ($${tile.buildCost})`, player.color);
+    const label = prop.buildings === 5 ? '酒店' : `${prop.buildings}级建筑`;
+    this.addMessage(`${player.name} 在 ${tile.name} 升级到${label} ($${tile.buildCost})`, player.color);
     this.emit('buildProperty', { playerIndex: player.index, tileIndex });
   }
 
