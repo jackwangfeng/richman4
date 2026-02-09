@@ -46,6 +46,20 @@ async function main() {
       }
     });
 
+    // Mouse move for hover effects
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      renderer.uiRenderer.hoveredButton = renderer.uiRenderer.getButtonAt(x, y);
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      renderer.uiRenderer.hoveredButton = null;
+    });
+
     renderer.start();
     engine.startGame();
   } else {
@@ -81,6 +95,20 @@ async function main() {
       if (btn) {
         networkClient.send({ type: 'action', action: btn.action });
       }
+    });
+
+    // Mouse move for hover effects
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      renderer.uiRenderer.hoveredButton = renderer.uiRenderer.getButtonAt(x, y);
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      renderer.uiRenderer.hoveredButton = null;
     });
 
     renderer.start();

@@ -1,8 +1,9 @@
 import {
   GameState, GamePhase, PropertyState, PlayerState,
   DiceResult, TileType, GameMessage, DecisionOption, AIPersonality,
+  CardType, Stock,
 } from '../types';
-import { TILE_DEFS, TOTAL_TILES, GO_SALARY, TAX_AMOUNT, CHARACTER_DEFS, STARTING_MONEY } from '../constants';
+import { TILE_DEFS, TOTAL_TILES, GO_SALARY, TAX_AMOUNT, CHARACTER_DEFS, STARTING_MONEY, CARD_DEFS, MAX_CARDS, CARD_CHANCE, STOCK_DEFS } from '../constants';
 import { rollDice } from './Dice';
 import { AI } from './AI';
 
@@ -24,6 +25,11 @@ export class GameEngine {
       ownerIndex: -1,
       buildings: 0,
     }));
+    // Initialize stocks with random starting prices
+    const stocks: Stock[] = STOCK_DEFS.map(s => ({
+      ...s,
+      price: s.price + Math.floor(Math.random() * 40) - 20,
+    }));
     return {
       phase: GamePhase.CHARACTER_SELECT,
       currentPlayerIndex: 0,
@@ -34,6 +40,7 @@ export class GameEngine {
       decisionOptions: [],
       winner: -1,
       turnCount: 0,
+      stocks,
     };
   }
 
@@ -54,11 +61,13 @@ export class GameEngine {
         index: 0, name: selected.name, color: selected.color,
         money: STARTING_MONEY, position: 0, inJail: false, jailTurns: 0,
         bankrupt: false, isHuman: true, autoPlay: false, personality: AIPersonality.BALANCED, characterId: selected.id,
+        cards: [], immuneTurns: 0, stocks: {},
       },
       ...remaining.map((ch, i) => ({
         index: i + 1, name: ch.name, color: ch.color,
         money: STARTING_MONEY, position: 0, inJail: false, jailTurns: 0,
         bankrupt: false, isHuman: false, autoPlay: false, personality: personalities[i], characterId: ch.id,
+        cards: [] as CardType[], immuneTurns: 0, stocks: {} as Record<string, number>,
       })),
     ];
 
@@ -87,6 +96,9 @@ export class GameEngine {
       autoPlay: false,
       personality: cfg.personality || AIPersonality.BALANCED,
       characterId: cfg.characterId,
+      cards: [] as CardType[],
+      immuneTurns: 0,
+      stocks: {} as Record<string, number>,
     }));
     this.state.phase = GamePhase.WAITING;
     this.state.messages = [{ text: '游戏开始！', timestamp: Date.now(), color: '#f1c40f' }];
@@ -181,40 +193,69 @@ export class GameEngine {
       return;
     }
 
+    // 回合开始时递减免租回合
+    if (player.immuneTurns > 0) {
+      player.immuneTurns--;
+      if (player.immuneTurns === 0) {
+        this.addMessage(`${player.name} 的免租效果已结束`, '#9b59b6');
+      }
+    }
+
     this.state.phase = GamePhase.WAITING;
     this.emit('phaseChange', GamePhase.WAITING);
 
+    // 回合开始时可以使用卡片或交易股票（仅人类玩家且非托管）
+    if (player.isHuman && !player.autoPlay) {
+      await this.handlePreTurnActions(player);
+    } else if (!player.isHuman) {
+      // AI 决定是否使用卡片
+      await this.handleAICardUse(player);
+      // AI 决定是否交易股票
+      await this.handleAIStockTrade(player);
+    }
+
     // Jail check
     if (player.inJail) {
-      player.jailTurns++;
-      if (player.jailTurns > 3) {
+      // 检查是否有免费出狱卡
+      const jailCardIndex = player.cards.indexOf(CardType.GET_OUT_OF_JAIL);
+      if (jailCardIndex >= 0 && (player.isHuman ? player.autoPlay : AI.shouldUseJailCard(player))) {
+        player.cards.splice(jailCardIndex, 1);
         player.inJail = false;
         player.jailTurns = 0;
-        this.addMessage(`${player.name} 刑满释放！`, player.color);
+        this.addMessage(`${player.name} 使用免费出狱卡！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex: player.index, cardType: CardType.GET_OUT_OF_JAIL });
       } else {
-        // Roll for doubles to escape
-        this.state.phase = GamePhase.ROLLING_DICE;
-        const dice = rollDice();
-        this.state.dice = dice;
-        this.emit('diceRolled', dice);
-        await this.delay(1000);
-
-        if (dice.isDouble) {
+        player.jailTurns++;
+        if (player.jailTurns > 3) {
           player.inJail = false;
           player.jailTurns = 0;
-          this.addMessage(`${player.name} 掷出双数，越狱成功！`, player.color);
-          this.emit('jailEscape', { playerIndex: player.index });
-          await this.movePlayer(player, dice.total);
-          await this.handleLanding(player);
+          this.addMessage(`${player.name} 刑满释放！`, player.color);
         } else {
-          this.addMessage(`${player.name} 在监狱中（第${player.jailTurns}回合）`, player.color);
+          // Roll for doubles to escape
+          this.state.phase = GamePhase.ROLLING_DICE;
+          const dice = rollDice();
+          this.state.dice = dice;
+          this.emit('diceRolled', dice);
+          await this.delay(1000);
+
+          if (dice.isDouble) {
+            player.inJail = false;
+            player.jailTurns = 0;
+            this.addMessage(`${player.name} 掷出双数，越狱成功！`, player.color);
+            this.emit('jailEscape', { playerIndex: player.index });
+            await this.movePlayer(player, dice.total);
+            await this.handleLanding(player);
+          } else {
+            this.addMessage(`${player.name} 在监狱中（第${player.jailTurns}回合）`, player.color);
+          }
+          this.state.phase = GamePhase.TURN_END;
+          this.emit('phaseChange', GamePhase.TURN_END);
+          await this.delay(500);
+          this.updateStockPrices();
+          this.checkGameOver();
+          if ((this.state.phase as GamePhase) !== GamePhase.GAME_OVER) this.nextPlayer();
+          return;
         }
-        this.state.phase = GamePhase.TURN_END;
-        this.emit('phaseChange', GamePhase.TURN_END);
-        await this.delay(500);
-        this.checkGameOver();
-        if ((this.state.phase as GamePhase) !== GamePhase.GAME_OVER) this.nextPlayer();
-        return;
       }
     }
 
@@ -244,6 +285,7 @@ export class GameEngine {
     this.state.phase = GamePhase.TURN_END;
     this.emit('phaseChange', GamePhase.TURN_END);
     await this.delay(400);
+    this.updateStockPrices();
     this.checkGameOver();
     if ((this.state.phase as GamePhase) !== GamePhase.GAME_OVER) this.nextPlayer();
   }
@@ -346,12 +388,17 @@ export class GameEngine {
       // Pay rent
       const owner = this.state.players[prop.ownerIndex];
       if (!owner.bankrupt && !owner.inJail) {
-        const rent = tile.rent[prop.buildings];
-        player.money -= rent;
-        owner.money += rent;
-        this.addMessage(`${player.name} 向 ${owner.name} 支付租金 $${rent}`, '#e74c3c');
-        this.emit('rentPaid', { payerIndex: player.index, ownerIndex: owner.index, rent });
-        this.checkBankrupt(player);
+        // 检查免租卡效果
+        if (player.immuneTurns > 0) {
+          this.addMessage(`${player.name} 使用免租效果，免付租金！`, '#9b59b6');
+        } else {
+          const rent = tile.rent[prop.buildings];
+          player.money -= rent;
+          owner.money += rent;
+          this.addMessage(`${player.name} 向 ${owner.name} 支付租金 $${rent}`, '#e74c3c');
+          this.emit('rentPaid', { payerIndex: player.index, ownerIndex: owner.index, rent });
+          this.checkBankrupt(player);
+        }
       }
     } else {
       // Own property — offer to build
@@ -432,6 +479,14 @@ export class GameEngine {
     this.addMessage(`${player.name}: ${event.text}`, color);
     this.emit('chanceCard', { playerIndex: player.index, money: event.money });
     this.checkBankrupt(player);
+
+    // 有概率获得卡片
+    if (Math.random() < CARD_CHANCE && player.cards.length < MAX_CARDS) {
+      const cardDef = CARD_DEFS[Math.floor(Math.random() * CARD_DEFS.length)];
+      player.cards.push(cardDef.type);
+      this.addMessage(`${player.name} 获得了 ${cardDef.name}！`, '#9b59b6');
+      this.emit('cardObtained', { playerIndex: player.index, cardType: cardDef.type });
+    }
   }
 
   private checkBankrupt(player: PlayerState) {
@@ -509,5 +564,178 @@ export class GameEngine {
     while ((this.state.phase as GamePhase) !== GamePhase.GAME_OVER) {
       await this.executeTurn();
     }
+  }
+
+  // ===== Card System =====
+  private async handlePreTurnActions(player: PlayerState): Promise<void> {
+    // 简化版：人类玩家可以在回合开始时选择使用卡片或交易股票
+    // 这里只处理卡片使用，股票交易通过UI面板处理
+    if (player.cards.length > 0) {
+      // 检查是否有可用的卡片（除了出狱卡，那个在监狱时自动处理）
+      const usableCards = player.cards.filter(c => c !== CardType.GET_OUT_OF_JAIL || player.inJail);
+      if (usableCards.length > 0 && player.cards.includes(CardType.IMMUNITY) && player.immuneTurns === 0) {
+        // 可以选择使用免租卡
+        // 为简化，这里不强制选择，玩家可以通过UI使用
+      }
+    }
+  }
+
+  private async handleAICardUse(player: PlayerState): Promise<void> {
+    // AI 决定是否使用免租卡
+    if (player.cards.includes(CardType.IMMUNITY) && player.immuneTurns === 0) {
+      if (AI.shouldUseImmunityCard(player, this.state)) {
+        const cardIndex = player.cards.indexOf(CardType.IMMUNITY);
+        player.cards.splice(cardIndex, 1);
+        player.immuneTurns = 3;
+        this.addMessage(`${player.name} 使用了免租卡！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex: player.index, cardType: CardType.IMMUNITY });
+      }
+    }
+  }
+
+  private async handleAIStockTrade(player: PlayerState): Promise<void> {
+    // AI 决定是否买卖股票
+    for (const stock of this.state.stocks) {
+      const holding = player.stocks[stock.id] || 0;
+
+      // 决定是否买入
+      if (AI.shouldBuyStock(player, stock, this.state)) {
+        const maxShares = Math.floor(player.money * 0.2 / stock.price); // 最多用20%资金买
+        if (maxShares > 0) {
+          const shares = Math.min(maxShares, 5); // 每次最多买5股
+          player.money -= shares * stock.price;
+          player.stocks[stock.id] = holding + shares;
+          this.addMessage(`${player.name} 买入 ${shares} 股 ${stock.name}`, '#3498db');
+          this.emit('stockBought', { playerIndex: player.index, stockId: stock.id, shares, price: stock.price });
+        }
+      }
+
+      // 决定是否卖出
+      if (holding > 0 && AI.shouldSellStock(player, stock, holding, this.state)) {
+        const sellShares = Math.ceil(holding / 2); // 卖出一半
+        player.money += sellShares * stock.price;
+        player.stocks[stock.id] = holding - sellShares;
+        this.addMessage(`${player.name} 卖出 ${sellShares} 股 ${stock.name}`, '#e67e22');
+        this.emit('stockSold', { playerIndex: player.index, stockId: stock.id, shares: sellShares, price: stock.price });
+      }
+    }
+  }
+
+  // 股票价格波动
+  private updateStockPrices(): void {
+    for (const stock of this.state.stocks) {
+      // 基础波动 -10% 到 +10%
+      let change = (Math.random() - 0.5) * 0.2;
+
+      // 趋势影响
+      change += stock.trend * 0.03;
+
+      // 小概率大涨或大跌
+      if (Math.random() < 0.05) {
+        change = Math.random() < 0.5 ? -0.2 : 0.2; // 20%涨跌
+        stock.trend = change > 0 ? 2 : -2;
+      } else {
+        // 趋势逐渐回归
+        stock.trend = Math.max(-2, Math.min(2, stock.trend + (Math.random() - 0.5)));
+      }
+
+      const oldPrice = stock.price;
+      stock.price = Math.max(20, Math.round(stock.price * (1 + change)));
+
+      if (Math.abs(stock.price - oldPrice) > oldPrice * 0.1) {
+        const direction = stock.price > oldPrice ? '上涨' : '下跌';
+        const percent = Math.round(Math.abs(stock.price - oldPrice) / oldPrice * 100);
+        this.emit('stockPriceChange', { stockId: stock.id, oldPrice, newPrice: stock.price, direction, percent });
+      }
+    }
+  }
+
+  // 人类玩家使用卡片
+  useCard(playerIndex: number, cardType: CardType, targetData?: any): boolean {
+    const player = this.state.players[playerIndex];
+    if (!player || player.bankrupt) return false;
+
+    const cardIndex = player.cards.indexOf(cardType);
+    if (cardIndex === -1) return false;
+
+    switch (cardType) {
+      case CardType.IMMUNITY:
+        if (player.immuneTurns > 0) return false;
+        player.cards.splice(cardIndex, 1);
+        player.immuneTurns = 3;
+        this.addMessage(`${player.name} 使用了免租卡！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex, cardType });
+        return true;
+
+      case CardType.GET_OUT_OF_JAIL:
+        if (!player.inJail) return false;
+        player.cards.splice(cardIndex, 1);
+        player.inJail = false;
+        player.jailTurns = 0;
+        this.addMessage(`${player.name} 使用免费出狱卡！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex, cardType });
+        return true;
+
+      case CardType.TELEPORT:
+        if (targetData?.position === undefined) return false;
+        player.cards.splice(cardIndex, 1);
+        const oldPos = player.position;
+        player.position = targetData.position % TOTAL_TILES;
+        this.addMessage(`${player.name} 使用传送卡！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex, cardType });
+        this.emit('playerStep', { playerIndex, position: player.position, fromPos: oldPos });
+        return true;
+
+      case CardType.ROB:
+        if (targetData?.targetPlayerIndex === undefined) return false;
+        const target = this.state.players[targetData.targetPlayerIndex];
+        if (!target || target.bankrupt || target.cards.length === 0) return false;
+        player.cards.splice(cardIndex, 1);
+        const stolenCard = target.cards[Math.floor(Math.random() * target.cards.length)];
+        target.cards.splice(target.cards.indexOf(stolenCard), 1);
+        player.cards.push(stolenCard);
+        const cardName = CARD_DEFS.find(c => c.type === stolenCard)?.name || '卡片';
+        this.addMessage(`${player.name} 从 ${target.name} 抢夺了 ${cardName}！`, '#9b59b6');
+        this.emit('cardUsed', { playerIndex, cardType, targetPlayerIndex: targetData.targetPlayerIndex });
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
+  // 股票交易
+  buyStock(playerIndex: number, stockId: string, shares: number): boolean {
+    const player = this.state.players[playerIndex];
+    if (!player || player.bankrupt || shares <= 0) return false;
+
+    const stock = this.state.stocks.find(s => s.id === stockId);
+    if (!stock) return false;
+
+    const cost = shares * stock.price;
+    if (player.money < cost) return false;
+
+    player.money -= cost;
+    player.stocks[stockId] = (player.stocks[stockId] || 0) + shares;
+    this.addMessage(`${player.name} 买入 ${shares} 股 ${stock.name}`, '#3498db');
+    this.emit('stockBought', { playerIndex, stockId, shares, price: stock.price });
+    return true;
+  }
+
+  sellStock(playerIndex: number, stockId: string, shares: number): boolean {
+    const player = this.state.players[playerIndex];
+    if (!player || player.bankrupt || shares <= 0) return false;
+
+    const stock = this.state.stocks.find(s => s.id === stockId);
+    if (!stock) return false;
+
+    const holding = player.stocks[stockId] || 0;
+    if (holding < shares) return false;
+
+    player.money += shares * stock.price;
+    player.stocks[stockId] = holding - shares;
+    this.addMessage(`${player.name} 卖出 ${shares} 股 ${stock.name}`, '#e67e22');
+    this.emit('stockSold', { playerIndex, stockId, shares, price: stock.price });
+    return true;
   }
 }

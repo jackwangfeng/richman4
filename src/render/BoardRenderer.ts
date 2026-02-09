@@ -6,6 +6,7 @@ export class BoardRenderer {
   private board: Board;
   private buildingImages: Map<number, HTMLImageElement> = new Map();
   private imagesLoaded = false;
+  private currentPlayerPosition: number = -1;
 
   constructor(board: Board) {
     this.board = board;
@@ -27,7 +28,13 @@ export class BoardRenderer {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D, state: GameState) {
+  draw(ctx: CanvasRenderingContext2D, state: GameState, currentPlayerIndex?: number) {
+    // Track current player position for highlighting
+    if (currentPlayerIndex !== undefined && state.players[currentPlayerIndex]) {
+      this.currentPlayerPosition = state.players[currentPlayerIndex].position;
+    } else {
+      this.currentPlayerPosition = -1;
+    }
     this.drawBoardSurface(ctx);
     this.drawTiles(ctx, state);
     this.drawBoardCenter(ctx);
@@ -94,6 +101,7 @@ export class BoardRenderer {
       if (poly.length < 4) continue;
       const tile = TILE_DEFS[i];
       const prop = state.properties[i];
+      const isCurrentPlayerTile = i === this.currentPlayerPosition;
 
       // Fill tile background
       ctx.beginPath();
@@ -120,9 +128,46 @@ export class BoardRenderer {
         ctx.fillStyle = '#e0e0e0';
       }
       ctx.fill();
+
+      // Inner shadow effect
+      ctx.save();
+      ctx.clip();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.restore();
+
+      // Tile border
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let j = 1; j < poly.length; j++) {
+        ctx.lineTo(poly[j].x, poly[j].y);
+      }
+      ctx.closePath();
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
       ctx.stroke();
+
+      // Highlight current player's tile
+      if (isCurrentPlayerTile) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(poly[0].x, poly[0].y);
+        for (let j = 1; j < poly.length; j++) {
+          ctx.lineTo(poly[j].x, poly[j].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 235, 59, 0.35)';
+        ctx.fill();
+        ctx.strokeStyle = '#ffc107';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Owner border highlight and ownership indicator
       if (prop.ownerIndex >= 0 && state.players[prop.ownerIndex]) {

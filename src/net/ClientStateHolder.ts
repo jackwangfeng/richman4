@@ -1,5 +1,5 @@
 import { GameState, GamePhase } from '../types';
-import { TILE_DEFS } from '../constants';
+import { TILE_DEFS, STOCK_DEFS } from '../constants';
 
 export class ClientStateHolder {
   state: GameState;
@@ -15,6 +15,7 @@ export class ClientStateHolder {
       decisionOptions: [],
       winner: -1,
       turnCount: 0,
+      stocks: STOCK_DEFS.map(s => ({ ...s })),
     };
   }
 }

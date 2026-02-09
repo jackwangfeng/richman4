@@ -1,4 +1,4 @@
-import { TileDef, TileType, Vec3, CharacterDef } from './types';
+import { TileDef, TileType, Vec3, CharacterDef, CardDef, CardType, Stock } from './types';
 
 // ===== Board Layout =====
 export const TOTAL_TILES = 32;
@@ -8,6 +8,26 @@ export const TILES_PER_SIDE = 8; // including corners
 export const STARTING_MONEY = 2000;
 export const GO_SALARY = 200;
 export const TAX_AMOUNT = 150;
+
+// ===== Cards =====
+export const MAX_CARDS = 5;  // 每人最多持有5张卡片
+export const CARD_CHANCE = 0.3;  // 机会格获得卡片的概率
+
+export const CARD_DEFS: CardDef[] = [
+  { type: CardType.GET_OUT_OF_JAIL, name: '免费出狱卡', description: '可以免费离开监狱' },
+  { type: CardType.TELEPORT, name: '传送卡', description: '传送到任意格子' },
+  { type: CardType.IMMUNITY, name: '免租卡', description: '3回合内免付租金' },
+  { type: CardType.REMOTE_DICE, name: '遥控骰子', description: '选择骰子点数(2-12)' },
+  { type: CardType.ROB, name: '抢夺卡', description: '抢夺其他玩家的一张卡片' },
+];
+
+// ===== Stocks =====
+export const STOCK_DEFS: Stock[] = [
+  { id: 'tech', name: '科技股', price: 150, trend: 0 },
+  { id: 'realty', name: '地产股', price: 120, trend: 0 },
+  { id: 'energy', name: '能源股', price: 100, trend: 0 },
+  { id: 'finance', name: '金融股', price: 180, trend: 0 },
+];
 
 // ===== Camera =====
 export const CAMERA_POS: Vec3 = { x: 0, y: 2.2, z: 2.0 };

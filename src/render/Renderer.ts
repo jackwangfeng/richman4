@@ -178,7 +178,7 @@ export class Renderer {
       return;
     }
 
-    this.boardRenderer.draw(ctx, state);
+    this.boardRenderer.draw(ctx, state, state.currentPlayerIndex);
     this.tokenRenderer.draw(ctx, state);
     this.diceRenderer.draw(ctx, now, state.dice);
     this.uiRenderer.draw(ctx, state);

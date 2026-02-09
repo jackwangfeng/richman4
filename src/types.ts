@@ -28,6 +28,20 @@ export enum AIPersonality {
   BALANCED = 'BALANCED',
 }
 
+export enum CardType {
+  GET_OUT_OF_JAIL = 'GET_OUT_OF_JAIL',  // 免费出狱卡
+  TELEPORT = 'TELEPORT',                 // 传送卡
+  IMMUNITY = 'IMMUNITY',                 // 免租卡 (3回合)
+  REMOTE_DICE = 'REMOTE_DICE',           // 遥控骰子
+  ROB = 'ROB',                           // 抢夺卡
+}
+
+export interface CardDef {
+  type: CardType;
+  name: string;
+  description: string;
+}
+
 // ===== Interfaces =====
 
 export interface Vec3 {
@@ -79,6 +93,16 @@ export interface PlayerState {
   autoPlay: boolean;  // Human player delegates to AI
   personality: AIPersonality | null;
   characterId: string;
+  cards: CardType[];      // 持有的卡片
+  immuneTurns: number;    // 免租剩余回合
+  stocks: Record<string, number>;  // 股票ID -> 持有数量
+}
+
+export interface Stock {
+  id: string;
+  name: string;
+  price: number;
+  trend: number;  // -2 到 +2
 }
 
 export interface DiceResult {
@@ -132,4 +156,5 @@ export interface GameState {
   decisionOptions: DecisionOption[];
   winner: number;
   turnCount: number;
+  stocks: Stock[];  // 当前股票列表
 }
