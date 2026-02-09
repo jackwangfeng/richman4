@@ -1,0 +1,19 @@
+{
+  "name": "monopoly4",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "server": "tsx server/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12"
+  }
+}
