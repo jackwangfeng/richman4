@@ -362,31 +362,36 @@ export class GameEngine {
   private async handleBuild(player: PlayerState, tileIndex: number): Promise<void> {
     const tile = TILE_DEFS[tileIndex];
     const prop = this.state.properties[tileIndex];
-    if (prop.buildings >= 5) return;
 
     // Check owns all in group
     const groupTiles = TILE_DEFS.filter(t => t.colorGroup === tile.colorGroup);
     const ownsAll = groupTiles.every(t => this.state.properties[t.index].ownerIndex === player.index);
     if (!ownsAll) return;
-    if (player.money < tile.buildCost) return;
 
-    if (player.isHuman && !player.autoPlay) {
-      const buildingName = prop.buildings === 4 ? '酒店' : `第${prop.buildings + 1}栋房屋`;
-      this.state.phase = GamePhase.PLAYER_DECISION;
-      this.state.decisionOptions = [
-        { label: `建造${buildingName} ($${tile.buildCost})`, action: 'build' },
-        { label: '不建造', action: 'pass' },
-      ];
-      this.emit('phaseChange', GamePhase.PLAYER_DECISION);
-      const action = await this.waitForAction();
-      if (action === 'build') {
-        this.buildOnProperty(player, tileIndex);
-      }
-    } else {
-      this.state.phase = GamePhase.AI_THINKING;
-      await this.delay(600 + Math.random() * 400);
-      if (AI.shouldBuild(player, tileIndex, this.state.properties)) {
-        this.buildOnProperty(player, tileIndex);
+    // Loop to allow multiple upgrades
+    while (prop.buildings < 5 && player.money >= tile.buildCost) {
+      if (player.isHuman && !player.autoPlay) {
+        const buildingName = prop.buildings === 4 ? '酒店' : `第${prop.buildings + 1}栋房屋`;
+        this.state.phase = GamePhase.PLAYER_DECISION;
+        this.state.decisionOptions = [
+          { label: `建造${buildingName} ($${tile.buildCost})`, action: 'build' },
+          { label: '不建造', action: 'pass' },
+        ];
+        this.emit('phaseChange', GamePhase.PLAYER_DECISION);
+        const action = await this.waitForAction();
+        if (action === 'build') {
+          this.buildOnProperty(player, tileIndex);
+        } else {
+          break; // Player chose not to build
+        }
+      } else {
+        this.state.phase = GamePhase.AI_THINKING;
+        await this.delay(600 + Math.random() * 400);
+        if (AI.shouldBuild(player, tileIndex, this.state.properties)) {
+          this.buildOnProperty(player, tileIndex);
+        } else {
+          break; // AI chose not to build
+        }
       }
     }
   }
