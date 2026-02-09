@@ -38,6 +38,8 @@ async function main() {
         if (btn.action.startsWith('select_')) {
           const charIndex = parseInt(btn.action.split('_')[1]);
           engine.handleCharacterSelect(charIndex);
+        } else if (btn.action === 'toggleAutoPlay') {
+          engine.toggleAutoPlay(0); // Player 0 is always the human player
         } else {
           engine.handleAction(btn.action);
         }

@@ -53,12 +53,12 @@ export class GameEngine {
       {
         index: 0, name: selected.name, color: selected.color,
         money: STARTING_MONEY, position: 0, inJail: false, jailTurns: 0,
-        bankrupt: false, isHuman: true, personality: null, characterId: selected.id,
+        bankrupt: false, isHuman: true, autoPlay: false, personality: AIPersonality.BALANCED, characterId: selected.id,
       },
       ...remaining.map((ch, i) => ({
         index: i + 1, name: ch.name, color: ch.color,
         money: STARTING_MONEY, position: 0, inJail: false, jailTurns: 0,
-        bankrupt: false, isHuman: false, personality: personalities[i], characterId: ch.id,
+        bankrupt: false, isHuman: false, autoPlay: false, personality: personalities[i], characterId: ch.id,
       })),
     ];
 
@@ -84,11 +84,72 @@ export class GameEngine {
       jailTurns: 0,
       bankrupt: false,
       isHuman: cfg.isHuman,
-      personality: cfg.personality,
+      autoPlay: false,
+      personality: cfg.personality || AIPersonality.BALANCED,
       characterId: cfg.characterId,
     }));
     this.state.phase = GamePhase.WAITING;
     this.state.messages = [{ text: '游戏开始！', timestamp: Date.now(), color: '#f1c40f' }];
+  }
+
+  toggleAutoPlay(playerIndex: number) {
+    const player = this.state.players[playerIndex];
+    if (player && player.isHuman) {
+      player.autoPlay = !player.autoPlay;
+      const status = player.autoPlay ? '开启' : '关闭';
+      this.addMessage(`${player.name} ${status}托管模式`, '#9b59b6');
+      this.emit('autoPlayToggled', { playerIndex, autoPlay: player.autoPlay });
+
+      // If it's currently this player's turn and autoPlay just enabled, trigger AI action
+      if (player.autoPlay && this.state.currentPlayerIndex === playerIndex) {
+        this.triggerAutoAction();
+      }
+    }
+  }
+
+  private async triggerAutoAction() {
+    const player = this.currentPlayer;
+    if (!player.isHuman || !player.autoPlay) return;
+
+    // Auto-handle waiting for roll
+    if (this.state.phase === GamePhase.WAITING && this.resolveDecision) {
+      await this.delay(500);
+      this.handleAction('roll');
+    }
+    // Auto-handle decisions
+    else if (this.state.phase === GamePhase.PLAYER_DECISION && this.resolveDecision) {
+      await this.delay(800);
+      const action = this.getAutoDecision(player);
+      this.handleAction(action);
+    }
+  }
+
+  private getAutoDecision(player: PlayerState): string {
+    const options = this.state.decisionOptions;
+    if (options.length === 0) return 'pass';
+
+    // Check if it's a buy decision
+    const buyOption = options.find(o => o.action === 'buy');
+    if (buyOption) {
+      const tileIndex = player.position;
+      if (AI.shouldBuy(player, tileIndex, this.state.properties)) {
+        return 'buy';
+      }
+      return 'pass';
+    }
+
+    // Check if it's a build decision
+    const buildOption = options.find(o => o.action === 'build');
+    if (buildOption) {
+      const tileIndex = player.position;
+      if (AI.shouldBuild(player, tileIndex, this.state.properties)) {
+        return 'build';
+      }
+      return 'pass';
+    }
+
+    // Default: first option
+    return options[0].action;
   }
 
   on(cb: EventCallback) {
@@ -158,7 +219,8 @@ export class GameEngine {
     }
 
     // Normal turn: wait for roll
-    if (player.isHuman) {
+    const shouldAutoPlay = player.isHuman && player.autoPlay;
+    if (player.isHuman && !player.autoPlay) {
       this.state.phase = GamePhase.WAITING;
       this.emit('phaseChange', GamePhase.WAITING);
       await this.waitForAction('roll');
@@ -249,11 +311,12 @@ export class GameEngine {
   private async handleProperty(player: PlayerState, tileIndex: number): Promise<void> {
     const tile = TILE_DEFS[tileIndex];
     const prop = this.state.properties[tileIndex];
+    const shouldAutoPlay = player.isHuman && player.autoPlay;
 
     if (prop.ownerIndex === -1) {
       // Unowned — offer to buy
       if (player.money >= tile.price) {
-        if (player.isHuman) {
+        if (player.isHuman && !player.autoPlay) {
           this.state.phase = GamePhase.PLAYER_DECISION;
           this.state.decisionOptions = [
             { label: `购买 ${tile.name} ($${tile.price})`, action: 'buy' },
@@ -267,7 +330,7 @@ export class GameEngine {
             this.addMessage(`${player.name} 放弃购买 ${tile.name}`, player.color);
           }
         } else {
-          // AI decision
+          // AI decision (or autoPlay)
           this.state.phase = GamePhase.AI_THINKING;
           await this.delay(800 + Math.random() * 400);
           if (AI.shouldBuy(player, tileIndex, this.state.properties)) {
@@ -307,7 +370,7 @@ export class GameEngine {
     if (!ownsAll) return;
     if (player.money < tile.buildCost) return;
 
-    if (player.isHuman) {
+    if (player.isHuman && !player.autoPlay) {
       const buildingName = prop.buildings === 4 ? '酒店' : `第${prop.buildings + 1}栋房屋`;
       this.state.phase = GamePhase.PLAYER_DECISION;
       this.state.decisionOptions = [

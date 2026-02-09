@@ -197,7 +197,10 @@ export class UIRenderer {
       ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      const nameLabel = player.index === this.localPlayerIndex ? `${player.name} (你)` : player.name;
+      let nameLabel = player.index === this.localPlayerIndex ? `${player.name} (你)` : player.name;
+      if (player.isHuman && player.autoPlay) {
+        nameLabel += ' [托管]';
+      }
       ctx.fillText(nameLabel, x + 30, y + 20);
 
       // Money
@@ -248,11 +251,22 @@ export class UIRenderer {
   private drawActionButtons(ctx: CanvasRenderingContext2D, state: GameState) {
     if (state.players.length === 0) return;
     const player = state.players[state.currentPlayerIndex];
-    if (!player || state.currentPlayerIndex !== this.localPlayerIndex) return;
+    const localPlayer = state.players[this.localPlayerIndex];
 
     const btnY = CANVAS_HEIGHT - 70;
     const btnH = 45;
     const btnW = 160;
+
+    // Always show auto-play toggle for local human player
+    if (localPlayer && localPlayer.isHuman) {
+      const autoLabel = localPlayer.autoPlay ? '取消托管' : '托管给AI';
+      const autoColor = localPlayer.autoPlay ? '#e74c3c' : '#9b59b6';
+      this.drawButton(ctx, 20, btnY, 100, btnH, autoLabel, 'toggleAutoPlay', true, autoColor);
+    }
+
+    // Don't show action buttons if not current player or in autoPlay mode
+    if (!player || state.currentPlayerIndex !== this.localPlayerIndex) return;
+    if (localPlayer && localPlayer.autoPlay) return;
 
     if (state.phase === GamePhase.WAITING) {
       this.drawButton(ctx, CANVAS_WIDTH / 2 - btnW / 2, btnY, btnW, btnH, '掷骰子', 'roll', true);
@@ -266,10 +280,12 @@ export class UIRenderer {
     }
   }
 
-  private drawButton(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, action: string, enabled: boolean) {
+  private drawButton(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, action: string, enabled: boolean, color?: string) {
+    const baseColor = color || '#4CAF50';
+    const darkColor = this.darkenColor(baseColor, 0.2);
     const gradient = ctx.createLinearGradient(x, y, x, y + h);
-    gradient.addColorStop(0, enabled ? '#4CAF50' : '#888');
-    gradient.addColorStop(1, enabled ? '#388E3C' : '#666');
+    gradient.addColorStop(0, enabled ? baseColor : '#888');
+    gradient.addColorStop(1, enabled ? darkColor : '#666');
     ctx.fillStyle = gradient;
     this.roundRect(ctx, x, y, w, h, 8);
     ctx.fill();
@@ -287,6 +303,14 @@ export class UIRenderer {
     ctx.fillText(displayLabel, x + w / 2, y + h / 2);
 
     this.buttons.push({ x, y, w, h, label, action, visible: true, enabled });
+  }
+
+  private darkenColor(hex: string, amount: number): string {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const r = Math.max(0, ((num >> 16) & 0xff) * (1 - amount));
+    const g = Math.max(0, ((num >> 8) & 0xff) * (1 - amount));
+    const b = Math.max(0, (num & 0xff) * (1 - amount));
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
   private drawPhaseIndicator(ctx: CanvasRenderingContext2D, state: GameState) {

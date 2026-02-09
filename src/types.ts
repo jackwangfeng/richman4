@@ -76,6 +76,7 @@ export interface PlayerState {
   jailTurns: number;
   bankrupt: boolean;
   isHuman: boolean;
+  autoPlay: boolean;  // Human player delegates to AI
   personality: AIPersonality | null;
   characterId: string;
 }
