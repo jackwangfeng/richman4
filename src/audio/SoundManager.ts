@@ -6,6 +6,7 @@ export type SoundId =
 export class SoundManager {
   private ctx: AudioContext;
   private volume = 0.5;
+  private muted = false;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
@@ -15,7 +16,12 @@ export class SoundManager {
     this.volume = Math.max(0, Math.min(1, v));
   }
 
+  setMuted(m: boolean) {
+    this.muted = m;
+  }
+
   play(id: SoundId) {
+    if (this.muted) return;
     const fn = this.sounds[id];
     if (fn) fn();
   }

@@ -28,3 +28,9 @@ npm-debug.log*
 
 # TypeScript cache
 *.tsbuildinfo
+
+# macOS AppleDouble
+._*
+
+# Trae IDE
+.trae/

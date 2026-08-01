@@ -1,5 +1,7 @@
-import { GameState, GamePhase, Button, CardType, Stock } from '../types';
+import { GameState, GamePhase, Button, CardType, Stock, GeminiConfig, AIPersonality } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, CHARACTER_DEFS, CARD_DEFS } from '../constants';
+import { AudioSettings } from '../audio/AudioManager';
+import { GeminiConfigManager } from '../core/GeminiConfigManager';
 
 export class UIRenderer {
   buttons: Button[] = [];
@@ -8,6 +10,71 @@ export class UIRenderer {
   private characterImages: Map<string, HTMLImageElement> = new Map();
   private walkImages: Map<string, HTMLImageElement[]> = new Map();
   private imagesLoaded = false;
+  private showSettingsPanel = false;
+  private showStockPanel = false;
+  public selectedStock: string | null = null;
+  private audioSettings: AudioSettings | null = null;
+  private draggingSlider: 'sound' | 'voice' | null = null;
+  private geminiConfigManager: GeminiConfigManager;
+  private editingApiKey = false;
+  private apiKeyInput = '';
+
+  constructor() {
+    this.geminiConfigManager = GeminiConfigManager.getInstance();
+  }
+
+  setAudioSettings(settings: AudioSettings) {
+    this.audioSettings = settings;
+  }
+
+  toggleSettingsPanel() {
+    this.showSettingsPanel = !this.showSettingsPanel;
+  }
+
+  toggleStockPanel() {
+    this.showStockPanel = !this.showStockPanel;
+    this.selectedStock = null;
+  }
+
+  isStockPanelOpen(): boolean {
+    return this.showStockPanel;
+  }
+
+  isSettingsPanelOpen(): boolean {
+    return this.showSettingsPanel;
+  }
+
+  isDraggingSlider(): 'sound' | 'voice' | null {
+    return this.draggingSlider;
+  }
+
+  setDraggingSlider(type: 'sound' | 'voice' | null) {
+    this.draggingSlider = type;
+  }
+
+  isEditingApiKey(): boolean {
+    return this.editingApiKey;
+  }
+
+  setEditingApiKey(editing: boolean) {
+    this.editingApiKey = editing;
+    if (editing) {
+      this.apiKeyInput = this.geminiConfigManager.getApiKey();
+    }
+  }
+
+  getApiKeyInput(): string {
+    return this.apiKeyInput;
+  }
+
+  setApiKeyInput(value: string) {
+    this.apiKeyInput = value;
+  }
+
+  saveApiKey() {
+    this.geminiConfigManager.setApiKey(this.apiKeyInput);
+    this.editingApiKey = false;
+  }
 
   loadCharacterImages(): Promise<void> {
     const promises: Promise<void>[] = [];
@@ -61,6 +128,13 @@ export class UIRenderer {
     this.drawStockPanel(ctx, state);
     this.drawActionButtons(ctx, state);
     this.drawPhaseIndicator(ctx, state);
+    this.drawSettingsButton(ctx);
+    if (this.showSettingsPanel) {
+      this.drawSettingsPanel(ctx);
+    }
+    if (this.showStockPanel) {
+      this.drawStockTradePanel(ctx, state);
+    }
   }
 
   // ===== Character Selection Screen =====
@@ -230,6 +304,8 @@ export class UIRenderer {
       let nameLabel = player.index === this.localPlayerIndex ? `${player.name} (你)` : player.name;
       if (player.isHuman && player.autoPlay) {
         nameLabel += ' [托管]';
+      } else if (!player.isHuman && player.personality === AIPersonality.GEMINI) {
+        nameLabel += ' [Gemini]';
       }
       ctx.fillText(nameLabel, x + 30, y + 20);
 
@@ -251,9 +327,9 @@ export class UIRenderer {
   }
 
   private drawMessages(ctx: CanvasRenderingContext2D, state: GameState) {
-    const msgX = CANVAS_WIDTH - 280;
+    const msgX = CANVAS_WIDTH - 300;
     const msgY = 10;
-    const msgW = 270;
+    const msgW = 290;
     const msgH = 260;
 
     // Shadow for message panel
@@ -307,9 +383,16 @@ export class UIRenderer {
 
     // Always show auto-play toggle for local human player
     if (localPlayer && localPlayer.isHuman) {
-      const autoLabel = localPlayer.autoPlay ? '取消托管' : '托管给AI';
+      const autoLabel = localPlayer.autoPlay ? '取消托管' : '托管给Gemini';
       const autoColor = localPlayer.autoPlay ? '#e74c3c' : '#9b59b6';
       this.drawButton(ctx, 20, btnY, 100, btnH, autoLabel, 'toggleAutoPlay', true, autoColor);
+    }
+
+    // Always show stock button for local human player
+    if (localPlayer && localPlayer.isHuman) {
+      const stockLabel = this.showStockPanel ? '关闭股票' : '股票市场';
+      const stockColor = this.showStockPanel ? '#e74c3c' : '#3498db';
+      this.drawButton(ctx, 130, btnY, 100, btnH, stockLabel, 'toggleStockPanel', true, stockColor);
     }
 
     // Don't show action buttons if not current player or in autoPlay mode
@@ -590,5 +673,400 @@ export class UIRenderer {
         ctx.fillText(`持有: ${holding}`, panelX + panelW - 12, y + stockH / 2);
       }
     });
+  }
+
+  // ===== Stock Trade Panel =====
+  private drawStockTradePanel(ctx: CanvasRenderingContext2D, state: GameState) {
+    if (!state.stocks || state.stocks.length === 0) return;
+    
+    const localPlayer = state.players[this.localPlayerIndex];
+    if (!localPlayer) return;
+
+    const panelW = 320;
+    const panelH = 450;
+    const panelX = CANVAS_WIDTH / 2 - panelW / 2;
+    const panelY = CANVAS_HEIGHT / 2 - panelH / 2;
+
+    // Background overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Panel background
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 4;
+
+    const gradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+    gradient.addColorStop(0, 'rgba(44, 62, 80, 0.98)');
+    gradient.addColorStop(1, 'rgba(30, 40, 60, 0.98)');
+    ctx.fillStyle = gradient;
+    this.roundRect(ctx, panelX, panelY, panelW, panelH, 15);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 2;
+    this.roundRect(ctx, panelX, panelY, panelW, panelH, 15);
+    ctx.stroke();
+    ctx.restore();
+
+    // Title
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 20px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('股票市场', panelX + panelW / 2, panelY + 25);
+
+    // Close button
+    const closeBtnX = panelX + panelW - 40;
+    const closeBtnY = panelY + 15;
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText('✕', closeBtnX, closeBtnY);
+    this.buttons.push({
+      x: closeBtnX - 12, y: closeBtnY - 12, w: 24, h: 24,
+      label: '关闭', action: 'closeStockPanel',
+      visible: true, enabled: true,
+    });
+
+    // Player money
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = 'bold 16px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`现金: $${localPlayer.money}`, panelX + 20, panelY + 55);
+
+    // Stock list
+    const stockListY = panelY + 80;
+    const stockH = 55;
+    
+    state.stocks.forEach((stock, i) => {
+      const y = stockListY + i * (stockH + 10);
+      const holding = localPlayer.stocks[stock.id] || 0;
+      const isSelected = this.selectedStock === stock.id;
+
+      // Stock card background
+      ctx.fillStyle = isSelected ? 'rgba(52, 152, 219, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+      this.roundRect(ctx, panelX + 15, y, panelW - 30, stockH, 10);
+      ctx.fill();
+      
+      if (isSelected) {
+        ctx.strokeStyle = '#3498db';
+        ctx.lineWidth = 2;
+        this.roundRect(ctx, panelX + 15, y, panelW - 30, stockH, 10);
+        ctx.stroke();
+      }
+
+      // Stock name
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 16px "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(stock.name, panelX + 25, y + 20);
+
+      // Price
+      const trendColor = stock.trend > 0 ? '#2ecc71' : stock.trend < 0 ? '#e74c3c' : '#fff';
+      const trendArrow = stock.trend > 0 ? '▲' : stock.trend < 0 ? '▼' : '─';
+      ctx.fillStyle = trendColor;
+      ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
+      ctx.fillText(`$${stock.price} ${trendArrow}`, panelX + 25, y + 42);
+
+      // Holdings
+      ctx.fillStyle = holding > 0 ? '#3498db' : '#888';
+      ctx.font = '12px "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`持有: ${holding}股`, panelX + panelW - 100, y + 20);
+
+      // Value
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(`市值: $${holding * stock.price}`, panelX + panelW - 100, y + 42);
+
+      // Click to select
+      this.buttons.push({
+        x: panelX + 15, y: y, w: panelW - 30, h: stockH,
+        label: stock.name, action: `selectStock_${stock.id}`,
+        visible: true, enabled: true,
+      });
+    });
+
+    // Selected stock details
+    if (this.selectedStock) {
+      const selectedStockData = state.stocks.find(s => s.id === this.selectedStock);
+      if (selectedStockData) {
+        const holding = localPlayer.stocks[this.selectedStock] || 0;
+        const totalValue = holding * selectedStockData.price;
+        
+        const detailY = panelY + panelH - 60;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        this.roundRect(ctx, panelX + 15, detailY - 20, panelW - 30, 50, 8);
+        ctx.fill();
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${selectedStockData.name}`, panelX + 25, detailY);
+        ctx.fillText(`持有: ${holding}股`, panelX + 25, detailY + 20);
+        ctx.fillText(`市值: $${totalValue}`, panelX + 150, detailY + 20);
+      }
+    }
+  }
+
+  // ===== Settings Button & Panel =====
+  private drawSettingsButton(ctx: CanvasRenderingContext2D) {
+    const x = CANVAS_WIDTH - 45;
+    const y = CANVAS_HEIGHT - 45;
+    const size = 35;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    const gradient = ctx.createRadialGradient(x + size/2, y + size/2, 0, x + size/2, y + size/2, size/2);
+    gradient.addColorStop(0, this.showSettingsPanel ? '#5a5a7a' : '#3a3a5a');
+    gradient.addColorStop(1, this.showSettingsPanel ? '#4a4a6a' : '#2a2a4a');
+    ctx.fillStyle = gradient;
+    this.roundRect(ctx, x, y, size, size, 8);
+    ctx.fill();
+
+    ctx.strokeStyle = this.showSettingsPanel ? '#f1c40f' : 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = this.showSettingsPanel ? 2 : 1;
+    this.roundRect(ctx, x, y, size, size, 8);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = this.showSettingsPanel ? '#f1c40f' : '#fff';
+    ctx.font = '20px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚙', x + size/2, y + size/2);
+
+    this.buttons.push({
+      x, y, w: size, h: size,
+      label: '设置', action: 'toggleSettings',
+      visible: true, enabled: true,
+    });
+  }
+
+  private drawSettingsPanel(ctx: CanvasRenderingContext2D) {
+    const panelW = 240;
+    const panelH = 320;
+    const panelX = CANVAS_WIDTH - panelW - 55;
+    const panelY = CANVAS_HEIGHT - panelH - 55;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
+
+    const gradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+    gradient.addColorStop(0, 'rgba(40, 40, 60, 0.98)');
+    gradient.addColorStop(1, 'rgba(25, 25, 45, 0.98)');
+    ctx.fillStyle = gradient;
+    this.roundRect(ctx, panelX, panelY, panelW, panelH, 12);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, panelX, panelY, panelW, panelH, 12);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 16px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('音效设置', panelX + 15, panelY + 22);
+
+    const soundY = panelY + 55;
+    const voiceY = panelY + 105;
+    const sliderW = 120;
+    const sliderX = panelX + 70;
+
+    this.drawVolumeControl(ctx, panelX + 15, soundY, '音效', 
+      this.audioSettings?.soundEnabled ?? true,
+      this.audioSettings?.soundVolume ?? 0.5,
+      sliderX, sliderW, 'sound');
+
+    this.drawVolumeControl(ctx, panelX + 15, voiceY, '语音',
+      this.audioSettings?.voiceEnabled ?? true,
+      this.audioSettings?.voiceVolume ?? 0.7,
+      sliderX, sliderW, 'voice');
+
+    const geminiY = panelY + 155;
+    ctx.fillStyle = '#3498db';
+    ctx.font = 'bold 16px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Gemini AI', panelX + 15, geminiY);
+
+    this.drawGeminiConfig(ctx, panelX + 15, geminiY + 30, panelW - 30);
+  }
+
+  private drawGeminiConfig(ctx: CanvasRenderingContext2D, x: number, y: number, width: number) {
+    const config = this.geminiConfigManager.getConfig();
+    const isConfigured = this.geminiConfigManager.isConfigured();
+
+    ctx.fillStyle = isConfigured ? '#2ecc71' : '#e74c3c';
+    ctx.font = '12px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isConfigured ? '✓ 已配置' : '✗ 未配置', x, y);
+
+    const apiKeyY = y + 30;
+    ctx.fillStyle = '#fff';
+    ctx.font = '13px "Microsoft YaHei", sans-serif';
+    ctx.fillText('API密钥:', x, apiKeyY);
+
+    const inputX = x + 65;
+    const inputW = width - 65;
+    const inputH = 28;
+    
+    ctx.fillStyle = this.editingApiKey ? 'rgba(52, 152, 219, 0.3)' : 'rgba(0, 0, 0, 0.3)';
+    this.roundRect(ctx, inputX, apiKeyY - inputH/2, inputW, inputH, 6);
+    ctx.fill();
+    
+    ctx.strokeStyle = this.editingApiKey ? '#3498db' : 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, inputX, apiKeyY - inputH/2, inputW, inputH, 6);
+    ctx.stroke();
+
+    const displayKey = this.editingApiKey 
+      ? this.apiKeyInput 
+      : (config.apiKey ? (config.apiKey.substring(0, 8) + '...' + config.apiKey.substring(config.apiKey.length - 4)) : '点击配置');
+    
+    ctx.fillStyle = config.apiKey ? '#fff' : '#888';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(displayKey, inputX + 8, apiKeyY);
+
+    this.buttons.push({
+      x: inputX, y: apiKeyY - inputH/2, w: inputW, h: inputH,
+      label: 'API密钥', action: 'editApiKey',
+      visible: true, enabled: true,
+    });
+
+    const modelY = apiKeyY + 35;
+    ctx.fillStyle = '#fff';
+    ctx.font = '13px "Microsoft YaHei", sans-serif';
+    ctx.fillText('模型:', x, modelY);
+
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(config.model, x + 40, modelY);
+
+    if (this.editingApiKey) {
+      const saveBtnX = x;
+      const saveBtnY = modelY + 30;
+      const saveBtnW = 80;
+      const saveBtnH = 30;
+
+      this.drawButton(ctx, saveBtnX, saveBtnY, saveBtnW, saveBtnH, '保存', 'saveApiKey', true, '#2ecc71');
+
+      const cancelBtnX = saveBtnX + saveBtnW + 10;
+      this.drawButton(ctx, cancelBtnX, saveBtnY, saveBtnW, saveBtnH, '取消', 'cancelEditApiKey', true, '#e74c3c');
+    }
+  }
+
+  private drawVolumeControl(
+    ctx: CanvasRenderingContext2D, 
+    x: number, y: number, 
+    label: string,
+    enabled: boolean,
+    volume: number,
+    sliderX: number,
+    sliderW: number,
+    type: 'sound' | 'voice'
+  ) {
+    ctx.fillStyle = enabled ? '#fff' : '#888';
+    ctx.font = '14px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y);
+
+    const toggleX = x + 40;
+    const toggleW = 36;
+    const toggleH = 20;
+    
+    ctx.fillStyle = enabled ? '#4CAF50' : '#555';
+    this.roundRect(ctx, toggleX, y - toggleH/2, toggleW, toggleH, 10);
+    ctx.fill();
+
+    const knobX = enabled ? toggleX + toggleW - toggleH + 2 : toggleX + 2;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(knobX + toggleH/2 - 2, y, toggleH/2 - 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    this.buttons.push({
+      x: toggleX, y: y - toggleH/2, w: toggleW, h: toggleH,
+      label: `${label}开关`, action: type === 'sound' ? 'toggleSound' : 'toggleVoice',
+      visible: true, enabled: true,
+    });
+
+    const trackH = 8;
+    const trackY = y - trackH/2;
+    
+    ctx.fillStyle = '#333';
+    this.roundRect(ctx, sliderX, trackY, sliderW, trackH, 4);
+    ctx.fill();
+
+    const fillW = sliderW * volume;
+    const fillColor = enabled ? '#4CAF50' : '#666';
+    ctx.fillStyle = fillColor;
+    this.roundRect(ctx, sliderX, trackY, fillW, trackH, 4);
+    ctx.fill();
+
+    const knobRadius = 10;
+    const knobCenterX = sliderX + fillW;
+    ctx.fillStyle = enabled ? '#fff' : '#aaa';
+    ctx.beginPath();
+    ctx.arc(knobCenterX, y, knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.strokeStyle = enabled ? '#4CAF50' : '#555';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(knobCenterX, y, knobRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const volText = Math.round(volume * 100) + '%';
+    ctx.fillStyle = enabled ? '#fff' : '#888';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(volText, sliderX + sliderW + 25, y);
+  }
+
+  getSliderAt(x: number, y: number): 'sound' | 'voice' | null {
+    if (!this.showSettingsPanel) return null;
+
+    const panelW = 240;
+    const panelH = 320;
+    const panelX = CANVAS_WIDTH - panelW - 55;
+    const panelY = CANVAS_HEIGHT - panelH - 55;
+    const sliderW = 120;
+    const sliderX = panelX + 70;
+
+    const soundY = panelY + 55;
+    const voiceY = panelY + 105;
+
+    const sliderArea = { x: sliderX - 10, w: sliderW + 20 };
+
+    if (x >= sliderArea.x && x <= sliderArea.x + sliderArea.w) {
+      if (Math.abs(y - soundY) < 15) return 'sound';
+      if (Math.abs(y - voiceY) < 15) return 'voice';
+    }
+    return null;
+  }
+
+  getSliderValue(x: number): number {
+    const panelW = 240;
+    const panelX = CANVAS_WIDTH - panelW - 55;
+    const sliderW = 120;
+    const sliderX = panelX + 70;
+
+    const relX = x - sliderX;
+    return Math.max(0, Math.min(1, relX / sliderW));
   }
 }

@@ -12,10 +12,20 @@ export class VoiceManager {
   private cache = new Map<string, HTMLAudioElement>();
   private current: HTMLAudioElement | null = null;
   private volume = 0.8;
+  private muted = false;
   private loaded = false;
 
   setVolume(v: number) {
     this.volume = Math.max(0, Math.min(1, v));
+  }
+
+  setMuted(m: boolean) {
+    this.muted = m;
+    if (m && this.current) {
+      this.current.pause();
+      this.current.currentTime = 0;
+      this.current = null;
+    }
   }
 
   preload() {
@@ -33,11 +43,12 @@ export class VoiceManager {
   }
 
   play(characterId: string, voiceId: VoiceId) {
+    if (this.muted) return;
+
     const key = `${characterId}/${voiceId}`;
     const audio = this.cache.get(key);
     if (!audio) return;
 
-    // Stop current voice
     if (this.current) {
       this.current.pause();
       this.current.currentTime = 0;

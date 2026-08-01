@@ -26,6 +26,7 @@ export enum AIPersonality {
   AGGRESSIVE = 'AGGRESSIVE',
   CONSERVATIVE = 'CONSERVATIVE',
   BALANCED = 'BALANCED',
+  GEMINI = 'GEMINI',
 }
 
 export enum CardType {
@@ -34,6 +35,9 @@ export enum CardType {
   IMMUNITY = 'IMMUNITY',                 // 免租卡 (3回合)
   REMOTE_DICE = 'REMOTE_DICE',           // 遥控骰子
   ROB = 'ROB',                           // 抢夺卡
+  ATTACK = 'ATTACK',                     // 攻击卡 - 让指定玩家后退3格
+  STEAL_MONEY = 'STEAL_MONEY',           // 盗窃卡 - 抢夺其他玩家$100
+  FREEZE = 'FREEZE',                     // 冰冻卡 - 让指定玩家下一回合无法行动
 }
 
 export interface CardDef {
@@ -96,6 +100,7 @@ export interface PlayerState {
   cards: CardType[];      // 持有的卡片
   immuneTurns: number;    // 免租剩余回合
   stocks: Record<string, number>;  // 股票ID -> 持有数量
+  frozenTurns: number;    // 冰冻剩余回合
 }
 
 export interface Stock {
@@ -157,4 +162,28 @@ export interface GameState {
   winner: number;
   turnCount: number;
   stocks: Stock[];  // 当前股票列表
+}
+
+// ===== Gemini AI 相关接口 =====
+export interface GeminiConfig {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+export interface GeminiAIDecision {
+  action: string;
+  reasoning: string;
+  confidence: number;
+}
+
+export interface GeminiGameContext {
+  player: PlayerState;
+  gameState: GameState;
+  decisionContext: {
+    type: 'buy' | 'build' | 'card' | 'stock' | 'roll' | 'jail' | 'preTurn' | 'attack' | 'pk';
+    options?: DecisionOption[];
+    tileIndex?: number;
+  };
 }

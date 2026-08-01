@@ -19,6 +19,9 @@ export const CARD_DEFS: CardDef[] = [
   { type: CardType.IMMUNITY, name: '免租卡', description: '3回合内免付租金' },
   { type: CardType.REMOTE_DICE, name: '遥控骰子', description: '选择骰子点数(2-12)' },
   { type: CardType.ROB, name: '抢夺卡', description: '抢夺其他玩家的一张卡片' },
+  { type: CardType.ATTACK, name: '攻击卡', description: '指定玩家后退3格' },
+  { type: CardType.STEAL_MONEY, name: '盗窃卡', description: '抢夺其他玩家$100' },
+  { type: CardType.FREEZE, name: '冰冻卡', description: '指定玩家下一回合无法行动' },
 ];
 
 // ===== Stocks =====
